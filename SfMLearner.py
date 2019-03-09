@@ -19,7 +19,7 @@ class SfMLearner(object):
                             opt.batch_size,
                             opt.img_height,
                             opt.img_width,
-                            opt.num_source,
+                            opt.num_source,   ### 一组图像序列的帧数，论文是3帧？3/8
                             opt.num_scales)
         with tf.name_scope("data_loading"):
             tgt_image, src_image_stack, intrinsics = loader.load_train_batch()
@@ -54,6 +54,7 @@ class SfMLearner(object):
                     ref_exp_mask = self.get_reference_explain_mask(s)
                 # Scale the source and target images for computing loss at the 
                 # according scale.
+                ### 对于低分辨率的图像也要计算loss，此时需要把源图像和目标图像都放缩3/8
                 curr_tgt_image = tf.image.resize_area(tgt_image, 
                     [int(opt.img_height/(2**s)), int(opt.img_width/(2**s))])                
                 curr_src_image_stack = tf.image.resize_area(src_image_stack, 
@@ -65,9 +66,9 @@ class SfMLearner(object):
 
                 for i in range(opt.num_source):
                     # Inverse warp the source image to the target image frame
-                    curr_proj_image = projective_inverse_warp(
+                    curr_proj_image = projective_inverse_warp(   ### 用这个函数实现重建图像！！！3/8
                         curr_src_image_stack[:,:,:,3*i:3*(i+1)], 
-                        tf.squeeze(pred_depth[s], axis=3), 
+                        tf.squeeze(pred_depth[s], axis=3),    ### 去掉所有维数为1的维度3/8
                         pred_poses[:,i,:], 
                         intrinsics[:,s,:,:])
                     curr_proj_error = tf.abs(curr_proj_image - curr_tgt_image)

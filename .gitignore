@@ -1,0 +1,14 @@
+# 
+*.png
+*.jpg
+*.zip
+*.rar
+*.tar
+*.7z
+
+#
+*__pycache__*
+*checkpoint*
+data/kitti_train
+data/kitti/2011_*
+

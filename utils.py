@@ -94,7 +94,7 @@ def pose_vec2mat(vec):
   transform_mat = tf.concat([transform_mat, filler], axis=1)
   return transform_mat
 
-def pixel2cam(depth, pixel_coords, intrinsics, is_homogeneous=True):
+def pixel2cam(depth, pixel_coords, intrinsics, is_homogeneous=True):   ### 将像素坐标转换辉相机坐标系中的（3-D）坐标3/8
   """Transforms coordinates in the pixel frame to the camera frame.
 
   Args:
@@ -108,14 +108,14 @@ def pixel2cam(depth, pixel_coords, intrinsics, is_homogeneous=True):
   batch, height, width = depth.get_shape().as_list()
   depth = tf.reshape(depth, [batch, 1, -1])
   pixel_coords = tf.reshape(pixel_coords, [batch, 3, -1])
-  cam_coords = tf.matmul(tf.matrix_inverse(intrinsics), pixel_coords) * depth
+  cam_coords = tf.matmul(tf.matrix_inverse(intrinsics), pixel_coords) * depth  ### cam_coords = D(p_t) * inv(K) * p_t 3/8
   if is_homogeneous:
     ones = tf.ones([batch, 1, height*width])
     cam_coords = tf.concat([cam_coords, ones], axis=1)
   cam_coords = tf.reshape(cam_coords, [batch, -1, height, width])
   return cam_coords
 
-def cam2pixel(cam_coords, proj):
+def cam2pixel(cam_coords, proj):     ### 相机坐标系中的坐标转换为像素坐标3/8
   """Transforms coordinates in a camera frame to the pixel frame.
 
   Args:
@@ -126,7 +126,7 @@ def cam2pixel(cam_coords, proj):
   """
   batch, _, height, width = cam_coords.get_shape().as_list()
   cam_coords = tf.reshape(cam_coords, [batch, 4, -1])
-  unnormalized_pixel_coords = tf.matmul(proj, cam_coords)
+  unnormalized_pixel_coords = tf.matmul(proj, cam_coords)  ### proj为相机坐标系到像素坐标系的投影矩阵3/8
   x_u = tf.slice(unnormalized_pixel_coords, [0, 0, 0], [-1, 1, -1])
   y_u = tf.slice(unnormalized_pixel_coords, [0, 1, 0], [-1, 1, -1])
   z_u = tf.slice(unnormalized_pixel_coords, [0, 2, 0], [-1, 1, -1])
@@ -136,7 +136,7 @@ def cam2pixel(cam_coords, proj):
   pixel_coords = tf.reshape(pixel_coords, [batch, 2, height, width])
   return tf.transpose(pixel_coords, perm=[0, 2, 3, 1])
 
-def meshgrid(batch, height, width, is_homogeneous=True):
+def meshgrid(batch, height, width, is_homogeneous=True):   ### 对每个像素都生成一个（其次）坐标，原点是图像左上角3/8
   """Construct a 2D meshgrid.
 
   Args:
@@ -179,17 +179,17 @@ def projective_inverse_warp(img, depth, pose, intrinsics):
   # Convert pose vector to matrix
   pose = pose_vec2mat(pose)
   # Construct pixel grid coordinates
-  pixel_coords = meshgrid(batch, height, width)
+  pixel_coords = meshgrid(batch, height, width)     ### 获得每个像素的坐标，以左上角为原点3/8
   # Convert pixel coordinates to the camera frame
   cam_coords = pixel2cam(depth, pixel_coords, intrinsics)
-  # Construct a 4x4 intrinsic matrix (TODO: can it be 3x4?)
+  # Construct a 4x4 intrinsic matrix (TODO: can it be 3x4?)   ### 4*4的内参数矩阵？3/8
   filler = tf.constant([0.0, 0.0, 0.0, 1.0], shape=[1, 1, 4])
   filler = tf.tile(filler, [batch, 1, 1])
   intrinsics = tf.concat([intrinsics, tf.zeros([batch, 3, 1])], axis=2)
   intrinsics = tf.concat([intrinsics, filler], axis=1)
   # Get a 4x4 transformation matrix from 'target' camera frame to 'source'
   # pixel frame.
-  proj_tgt_cam_to_src_pixel = tf.matmul(intrinsics, pose)
+  proj_tgt_cam_to_src_pixel = tf.matmul(intrinsics, pose)   ### K * T 3/8
   src_pixel_coords = cam2pixel(cam_coords, proj_tgt_cam_to_src_pixel)
   output_img = bilinear_sampler(img, src_pixel_coords)
   return output_img

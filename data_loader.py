@@ -32,7 +32,7 @@ class DataLoader(object):
             file_list['cam_file_list'], 
             seed=seed, 
             shuffle=True)
-        self.steps_per_epoch = int(
+        self.steps_per_epoch = int(   ### 等于batch的个数3/8
             len(file_list['image_file_list'])//self.batch_size)
 
         # Load images
@@ -47,7 +47,7 @@ class DataLoader(object):
         cam_reader = tf.TextLineReader()
         _, raw_cam_contents = cam_reader.read(cam_paths_queue)
         rec_def = []
-        for i in range(9):
+        for i in range(9):   ### 指相机内参数矩阵K的9个元素3/8
             rec_def.append([1.])
         raw_cam_vec = tf.decode_csv(raw_cam_contents, 
                                     record_defaults=rec_def)
@@ -63,13 +63,13 @@ class DataLoader(object):
         image_all = tf.concat([tgt_image, src_image_stack], axis=3)
         image_all, intrinsics = self.data_augmentation(
             image_all, intrinsics, self.img_height, self.img_width)
-        tgt_image = image_all[:, :, :, :3]
-        src_image_stack = image_all[:, :, :, 3:]
+        tgt_image = image_all[:, :, :, :3]      ### 第一帧为目标帧3/8
+        src_image_stack = image_all[:, :, :, 3:]  ### 第二帧及以后的为源帧3/8
         intrinsics = self.get_multi_scale_intrinsics(
             intrinsics, self.num_scales)
         return tgt_image, src_image_stack, intrinsics
 
-    def make_intrinsics_matrix(self, fx, fy, cx, cy):
+    def make_intrinsics_matrix(self, fx, fy, cx, cy):   ###输入相机内参数3/6
         # Assumes batch input
         batch_size = fx.get_shape().as_list()[0]
         zeros = tf.zeros_like(fx)
@@ -80,17 +80,17 @@ class DataLoader(object):
         intrinsics = tf.stack([r1, r2, r3], axis=1)
         return intrinsics
 
-    def data_augmentation(self, im, intrinsics, out_h, out_w):
+    def data_augmentation(self, im, intrinsics, out_h, out_w):     ###数据增强3/6
         # Random scaling
         def random_scaling(im, intrinsics):
             batch_size, in_h, in_w, _ = im.get_shape().as_list()
-            scaling = tf.random_uniform([2], 1, 1.15)
+            scaling = tf.random_uniform([2], 1, 1.15)        ###随机放缩1-1.5倍3/6
             x_scaling = scaling[0]
             y_scaling = scaling[1]
             out_h = tf.cast(in_h * y_scaling, dtype=tf.int32)
             out_w = tf.cast(in_w * x_scaling, dtype=tf.int32)
             im = tf.image.resize_area(im, [out_h, out_w])
-            fx = intrinsics[:,0,0] * x_scaling
+            fx = intrinsics[:,0,0] * x_scaling             ###对应修改相机参数3/6
             fy = intrinsics[:,1,1] * y_scaling
             cx = intrinsics[:,0,2] * x_scaling
             cy = intrinsics[:,1,2] * y_scaling
@@ -98,14 +98,14 @@ class DataLoader(object):
             return im, intrinsics
 
         # Random cropping
-        def random_cropping(im, intrinsics, out_h, out_w):
+        def random_cropping(im, intrinsics, out_h, out_w):      ###裁剪为指定尺寸3/6
             # batch_size, in_h, in_w, _ = im.get_shape().as_list()
             batch_size, in_h, in_w, _ = tf.unstack(tf.shape(im))
             offset_y = tf.random_uniform([1], 0, in_h - out_h + 1, dtype=tf.int32)[0]
             offset_x = tf.random_uniform([1], 0, in_w - out_w + 1, dtype=tf.int32)[0]
             im = tf.image.crop_to_bounding_box(
                 im, offset_y, offset_x, out_h, out_w)
-            fx = intrinsics[:,0,0]
+            fx = intrinsics[:,0,0]                     ###对应修改相机参数3/6
             fy = intrinsics[:,1,1]
             cx = intrinsics[:,0,2] - tf.cast(offset_x, dtype=tf.float32)
             cy = intrinsics[:,1,2] - tf.cast(offset_y, dtype=tf.float32)
@@ -116,7 +116,7 @@ class DataLoader(object):
         im = tf.cast(im, dtype=tf.uint8)
         return im, intrinsics
 
-    def format_file_list(self, data_root, split):
+    def format_file_list(self, data_root, split):              ###数据集文件名放在data_root/train.txt文件中3/6
         with open(data_root + '/%s.txt' % split, 'r') as f:
             frames = f.readlines()
         subfolders = [x.split(' ')[0] for x in frames]
@@ -127,15 +127,15 @@ class DataLoader(object):
             frame_ids[i] + '_cam.txt') for i in range(len(frames))]
         all_list = {}
         all_list['image_file_list'] = image_file_list
-        all_list['cam_file_list'] = cam_file_list
+        all_list['cam_file_list'] = cam_file_list             ###_cam.txt中存放相机参数信息3/6
         return all_list
 
     def unpack_image_sequence(self, image_seq, img_height, img_width, num_source):
-        # Assuming the center image is the target frame
-        tgt_start_idx = int(img_width * (num_source//2))
+        # Assuming the center image is the target frame   ### 假设中间的图像为目标图像3/8
+        tgt_start_idx = int(img_width * (num_source//2))  ### 寻找目标图像的index3/8
         tgt_image = tf.slice(image_seq, 
                              [0, tgt_start_idx, 0], 
-                             [-1, img_width, -1])
+                             [-1, img_width, -1])  ### 这里为什么是img_width?3/8
         # Source frames before the target frame
         src_image_1 = tf.slice(image_seq, 
                                [0, 0, 0], 
