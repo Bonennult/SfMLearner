@@ -100,7 +100,7 @@ def pixel2cam(depth, pixel_coords, intrinsics, is_homogeneous=True):   ### 将�
   Args:
     depth: [batch, height, width]
     pixel_coords: homogeneous pixel coordinates [batch, 3, height, width]
-    intrinsics: camera intrinsics [batch, 3, 3]
+    intrinsics: camera intrinsics [batch, 3, 3]      ### 首先需要改成所有图像共用相同的一个intrinsics，shape变为[3，3] 3/10
     is_homogeneous: return in homogeneous coordinates
   Returns:
     Coords in the camera frame [batch, 3 (4 if homogeneous), height, width]
@@ -108,7 +108,8 @@ def pixel2cam(depth, pixel_coords, intrinsics, is_homogeneous=True):   ### 将�
   batch, height, width = depth.get_shape().as_list()
   depth = tf.reshape(depth, [batch, 1, -1])
   pixel_coords = tf.reshape(pixel_coords, [batch, 3, -1])
-  cam_coords = tf.matmul(tf.matrix_inverse(intrinsics), pixel_coords) * depth  ### cam_coords = D(p_t) * inv(K) * p_t 3/8
+  #cam_coords = tf.matmul(tf.matrix_inverse(intrinsics), pixel_coords) * depth  ### cam_coords = D(p_t) * inv(K) * p_t 3/8
+  cam_coords = tf.matmul(tf.matrix_inverse(tf.tile(tf.expand_dims(intrinsics,0),multiples=[batch,1,1])), pixel_coords) * depth      ### 将共用的一个内参矩阵K复制batch次
   if is_homogeneous:
     ones = tf.ones([batch, 1, height*width])
     cam_coords = tf.concat([cam_coords, ones], axis=1)
@@ -170,12 +171,13 @@ def projective_inverse_warp(img, depth, pose, intrinsics):
     depth: depth map of the target image [batch, height_t, width_t]
     pose: target to source camera transformation matrix [batch, 6], in the
           order of tx, ty, tz, rx, ry, rz
-    intrinsics: camera intrinsics [batch, 3, 3]
+    intrinsics: camera intrinsics [batch, 3, 3]   ### 需要改为[3,3]的 3/10
   Returns:
     Source image inverse warped to the target image plane [batch, height_t,
     width_t, 3]
   """
   batch, height, width, _ = img.get_shape().as_list()
+  intrinsics = tf.tile(tf.expand_dims(intrinsics,0),multiples=[batch,1,1])  ### add复制batch次 3/10
   # Convert pose vector to matrix
   pose = pose_vec2mat(pose)
   # Construct pixel grid coordinates
