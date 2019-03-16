@@ -28,7 +28,11 @@ class SfMLearner(object):
             intrinsics_fy = tf.Variable(dtype=tf.float32)
             intrinsics_cx = tf.Variable(dtype=tf.float32)
             intrinsics_cy = tf.Variable(dtype=tf.float32)'''
-            intrinsics = tf.Variable(initial_value=[[240.,0.,200.],[0.,240.,60.],[0.,0.,1.]],name='intrinsics')   ### add 3/13
+            #intrinsics = tf.Variable(initial_value=[[240.,0.,200.],[0.,240.,60.],[0.,0.,1.]],name='intrinsics')  ### add 3/13
+            intrinsics_scale = tf.Variable(initial_value=[240.,240.],name='intrinsics_scale')  ### 放缩因子 3/14
+            intrinsics_trans = tf.Variable(initial_value=[200.,60.],name='intrinsics_trans')   ### 平移因子 3/14
+            intrinsics = tf.concat([tf.diag(intrinsics_scale), tf.expand_dims(intrinsics_trans,1)], axis=1)### 拼接 3/14
+            intrinsics = tf.concat([intrinsics, tf.constant([[0.,0.,1.]])], axis=0)         ### 拼接最后一行 3/14
             tgt_image = self.preprocess_image(tgt_image)
             src_image_stack = self.preprocess_image(src_image_stack)
 
@@ -260,8 +264,13 @@ class SfMLearner(object):
                             % (train_epoch, train_step, self.steps_per_epoch, \
                                 (time.time() - start_time)/opt.summary_freq, 
                                 results["loss"]))
-                    intrinsics = sess.graph.get_tensor_by_name('data_loading/intrinsics:0') ### add 3/13
-                    print(sess.run(intrinsics))   ### add 观察相机内参训练情况 3/13
+                    #intrinsics = sess.graph.get_tensor_by_name('data_loading/intrinsics:0') ### add 3/13
+                    #print(sess.run(intrinsics))   ### add 观察相机内参训练情况 3/13
+                    #print()
+                    var1 = sess.graph.get_tensor_by_name('data_loading/intrinsics_scale:0') ### add 3/14
+                    var2 = sess.graph.get_tensor_by_name('data_loading/intrinsics_trans:0') ### add 3/14
+                    print(sess.run(var1))   ### add 观察相机内参训练情况 3/14
+                    print(sess.run(var2))   ### add 观察相机内参训练情况 3/14
                     print()
                     #for var in tf.trainable_variables():           ### add 3/13
                     #    print(var.name)
