@@ -1,0 +1,1 @@
+python test_kitti_depth_2.py --dataset_dir data/kitti/ --output_dir test/depth/kitti_unknown_0321 --ckpt_file ./checkpoint/kitti_unknown_0321/model-199861

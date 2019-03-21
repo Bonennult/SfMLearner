@@ -29,10 +29,17 @@ class SfMLearner(object):
             intrinsics_cx = tf.Variable(dtype=tf.float32)
             intrinsics_cy = tf.Variable(dtype=tf.float32)'''
             #intrinsics = tf.Variable(initial_value=[[240.,0.,200.],[0.,240.,60.],[0.,0.,1.]],name='intrinsics')  ### add 3/13
-            intrinsics_scale = tf.Variable(initial_value=[240.,240.],name='intrinsics_scale')  ### 放缩因子 3/14
-            intrinsics_trans = tf.Variable(initial_value=[200.,60.],name='intrinsics_trans')   ### 平移因子 3/14
-            intrinsics = tf.concat([tf.diag(intrinsics_scale), tf.expand_dims(intrinsics_trans,1)], axis=1)### 拼接 3/14
-            intrinsics = tf.concat([intrinsics, tf.constant([[0.,0.,1.]])], axis=0)         ### 拼接最后一行 3/14
+            intrinsics_scale = tf.Variable(
+                initial_value=tf.random_uniform([2],2,4,seed=8964),
+                name='intrinsics_scale')  ### 放缩因子 3/14  改为随机初始化3/18
+            intrinsics_trans = tf.Variable(
+                initial_value=tf.random_uniform([2],5,30,seed=279),
+                name='intrinsics_trans')   ### 平移因子 3/14  改为随机初始化3/18
+            intrinsics = tf.concat(
+                [60*tf.diag(intrinsics_scale),10*tf.expand_dims(intrinsics_trans,1)], 
+                axis=1)  ### 拼接 3/14 乘以100 3/18  乘以1000 3/18
+            intrinsics = tf.concat([intrinsics, tf.constant([[0.,0.,1.]])], axis=0)      ### 拼接最后一行 3/14
+            
             tgt_image = self.preprocess_image(tgt_image)
             src_image_stack = self.preprocess_image(src_image_stack)
 
@@ -118,7 +125,11 @@ class SfMLearner(object):
                 proj_error_stack_all.append(proj_error_stack)
                 if opt.explain_reg_weight > 0:
                     exp_mask_stack_all.append(exp_mask_stack)
-            total_loss = pixel_loss + smooth_loss + exp_loss
+            scaling_loss = tf.square(intrinsics_scale[0]-intrinsics_scale[1],
+                                    name='scaling_loss')  ### 约束xy方向的放缩因子尽量相同 3/20
+            mean_depth = [tf.reduce_mean(pred_depth[i])-12. for i in range(len(pred_depth))]  ### add 3/21
+            depth_loss = 0.01*tf.reduce_sum(tf.square(mean_depth)) ### 使pred_depth接近10.0,不能对4个scale求平均 3/21
+            total_loss = pixel_loss + smooth_loss + exp_loss + scaling_loss + depth_loss ### add scaling 3/20 add 3/21
 
         with tf.name_scope("train_op"):
             train_vars = [var for var in tf.trainable_variables()]
@@ -141,6 +152,8 @@ class SfMLearner(object):
         self.pixel_loss = pixel_loss
         self.exp_loss = exp_loss
         self.smooth_loss = smooth_loss
+        self.scaling_loss = scaling_loss   ### add 3/20
+        self.depth_loss = depth_loss     ### 3/21
         self.tgt_image_all = tgt_image_all
         self.src_image_stack_all = src_image_stack_all
         self.proj_image_stack_all = proj_image_stack_all
@@ -183,6 +196,7 @@ class SfMLearner(object):
         tf.summary.scalar("pixel_loss", self.pixel_loss)
         tf.summary.scalar("smooth_loss", self.smooth_loss)
         tf.summary.scalar("exp_loss", self.exp_loss)
+        tf.summary.scalar("depth_loss", self.depth_loss)  ### add 3/21
         for s in range(opt.num_scales):
             tf.summary.histogram("scale%d_depth" % s, self.pred_depth[s])
             tf.summary.image('scale%d_disparity_image' % s, 1./self.pred_depth[s])
@@ -234,6 +248,8 @@ class SfMLearner(object):
             for var in tf.trainable_variables():
                 print(var.name)
             print("parameter_count =", sess.run(parameter_count))
+            #print(tf.get_collection(tf.GraphKeys.QUEUE_RUNNERS, 
+            #                         scope='depth_prediciton')) ### 查看pre_depth变量名 3/21 打印为空[]
             if opt.continue_train:
                 if opt.init_checkpoint_file is None:
                     checkpoint = tf.train.latest_checkpoint(opt.checkpoint_dir)
@@ -251,6 +267,11 @@ class SfMLearner(object):
 
                 if step % opt.summary_freq == 0:
                     fetches["loss"] = self.total_loss
+                    fetches["depth"] = self.pred_depth   ### add 3/21
+                    #fetches["pixel_loss"] = self.pixel_loss  ### add 3/20
+                    #fetches["exp_loss"] = self.exp_loss     ### add 3/20
+                    #fetches["smooth_loss"] = self.smooth_loss ### add 3/20
+                    #fetches["scaling_loss"] = self.scaling_loss ### add 3/20
                     fetches["summary"] = sv.summary_op
 
                 results = sess.run(fetches)
@@ -271,7 +292,16 @@ class SfMLearner(object):
                     var2 = sess.graph.get_tensor_by_name('data_loading/intrinsics_trans:0') ### add 3/14
                     print(sess.run(var1))   ### add 观察相机内参训练情况 3/14
                     print(sess.run(var2))   ### add 观察相机内参训练情况 3/14
-                    print()
+                    #print("mean: %.4f" % np.mean(results["depth"][0]))  ### add 3/21
+                    print("max: %.4f  min: %.4f  mean: %.4f" % \
+                          (results["depth"][0].max(), \
+                           results["depth"][0].min(), \
+                           results["depth"][0].mean()))   ### 观察深度信息 3/21
+                    #print("exp_loss    : %.4f" % sess.run(results["exp_loss"]))     ### 观察各项loss的量级 3/20
+                    #print("pixel_loss   : %.4f" % sess.run(self.pixel_loss))   ### 观察各项loss的量级 3/20
+                    #print("smooth_loss  : %.4f" % sess.run(self.smooth_loss))   ### 观察各项loss的量级 3/20
+                    #print("scaling_loss : %.4f" % sess.run(self.scaling_loss))  ### 观察各项loss的量级 3/20
+                    print()            ### add 3/14
                     #for var in tf.trainable_variables():           ### add 3/13
                     #    print(var.name)
                     #    if var.name == 'data_loading/intrinsics:0':  ### add 3/13
@@ -296,6 +326,9 @@ class SfMLearner(object):
         self.inputs = input_uint8
         self.pred_depth = pred_depth
         self.depth_epts = depth_net_endpoints
+        ### 查看后发现训练好的原始网络预测的pred_depth均值为10左右
+        ### 修改后的网络kitti_unknown学习到的均值只有1.2左右，可以看出来一定的深度信息
+        ### intrinsics离谱时学习到的均值只有0.0999，且所有图像都得到相同的固定值 3/21
 
     def build_pose_test_graph(self):
         input_uint8 = tf.placeholder(tf.uint8, [self.batch_size, 

@@ -18,7 +18,7 @@ flags.DEFINE_integer("batch_size", 4, "The size of of a sample batch")
 flags.DEFINE_integer("img_height", 128, "Image height")
 flags.DEFINE_integer("img_width", 416, "Image width")
 flags.DEFINE_integer("seq_length", 3, "Sequence length for each example")
-flags.DEFINE_integer("max_steps", 100000, "Maximum number of training iterations")  ### 200000改为100000
+flags.DEFINE_integer("max_steps", 200000, "Maximum number of training iterations")  ### 200000改为100000
 flags.DEFINE_integer("summary_freq", 100, "Logging every log_freq iterations")
 flags.DEFINE_integer("save_latest_freq", 5000, \
     "Save the latest model every save_latest_freq iterations (overwrites the previous latest model)")
@@ -28,7 +28,7 @@ flags.DEFINE_integer("num_scales", None, "number of used image scales")  ### add
 FLAGS = flags.FLAGS
 
 def main(_):
-    seed = 8964
+    seed = 8964    ### 怀疑是作者试出来的参数3/18
     tf.set_random_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
