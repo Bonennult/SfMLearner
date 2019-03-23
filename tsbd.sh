@@ -1,1 +1,1 @@
-tensorboard --logdir=checkpoint/kitti --port=8888
+tensorboard --logdir=checkpoint/kitti_unknown_0323_2 --port=16006

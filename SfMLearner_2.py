@@ -24,11 +24,10 @@ class SfMLearner(object):
         with tf.name_scope("data_loading"):
             #tgt_image, src_image_stack, intrinsics = loader.load_train_batch()   ### 修改intrinsics为可训练参数3/10
             tgt_image, src_image_stack = loader.load_train_batch()   ### add 3/10
-            '''intrinsics_fx = tf.Variable(dtype=tf.float32)         ### add 3/10 将intrinsics改为4个变量的数组?因为真正的intrisics中其余5个元素都是固定值。待修改！！！！
-            intrinsics_fy = tf.Variable(dtype=tf.float32)
-            intrinsics_cx = tf.Variable(dtype=tf.float32)
-            intrinsics_cy = tf.Variable(dtype=tf.float32)'''
-            #intrinsics = tf.Variable(initial_value=[[240.,0.,200.],[0.,240.,60.],[0.,0.,1.]],name='intrinsics')  ### add 3/13
+            #intrinsics = tf.Variable(
+            #    initial_value=[[240.,0.,200.],[0.,240.,60.],[0.,0.,1.]],
+            #    name='intrinsics')  ### add 3/13
+            
             '''intrinsics_scale = tf.Variable(
                 initial_value=tf.random_uniform([2],2,4,seed=9866),
                 name='intrinsics_scale')  ### 放缩因子 3/14  改为随机初始化3/18
@@ -39,7 +38,8 @@ class SfMLearner(object):
                 [60*tf.diag(intrinsics_scale),10*tf.expand_dims(intrinsics_trans,1)], 
                 axis=1)  ### 拼接 3/14 乘以100 3/18  乘以1000 3/18
             intrinsics = tf.concat([intrinsics, tf.constant([[0.,0.,1.]])], axis=0)      ### 拼接最后一行 3/14'''
-            intrinsics_trans = tf.constant([[1.,0.,opt.img_width/2], 
+            ### 只训练1个相机参数，其余固定 3/21
+            '''intrinsics_trans = tf.constant([[1.,0.,opt.img_width/2], 
                                             [0.,1.,opt.img_height/2], 
                                             [0.,0.,1.]]) ### 平移矩阵3/21
             scale = tf.Variable(
@@ -48,7 +48,9 @@ class SfMLearner(object):
             intrinsics_scale = tf.concat(
                 [20* scale * tf.eye(num_rows=2,num_columns=3), tf.constant([[0.,0.,1.]])], 
                 axis=0)  ### 拼接 3/21
-            intrinsics = tf.matmul(intrinsics_trans, intrinsics_scale)  ### 3/21
+            intrinsics = tf.matmul(intrinsics_trans, intrinsics_scale)  ### 3/21'''  ### delete 3/23
+            ### 直接固定所有相机参数，放缩因子用一个错误值 3/23
+            intrinsics = tf.constant([[100.,0.,opt.img_width/2],[0.,100.,opt.img_height/2],[0.,0.,1.]]) ### add 3/23
             tgt_image = self.preprocess_image(tgt_image)
             src_image_stack = self.preprocess_image(src_image_stack)
 
@@ -136,22 +138,38 @@ class SfMLearner(object):
                     exp_mask_stack_all.append(exp_mask_stack)
             #scaling_loss = tf.square(intrinsics_scale[0]-intrinsics_scale[1],
             #                        name='scaling_loss')  ### 约束xy方向的放缩因子尽量相同 3/20
-            mean_depth = [tf.reduce_mean(pred_depth[i])-12. for i in range(len(pred_depth))]  ### add 3/21
-            depth_loss = 0.005*tf.reduce_sum(tf.square(mean_depth)) ### 使pred_depth接近10.0,不能对4个scale求平均 3/21
-            total_loss = pixel_loss + smooth_loss + exp_loss + depth_loss ### add scaling 3/20 add depth 3/21 delete scaling 3/21
+            mean_depth = [tf.reduce_mean(pred_depth[i])-12. for i in range(len(pred_depth))]  ### add 3/21 delete 3/22 add 3/23
+            ### 使pred_depth接近10.0,不能对4个scale求平均 3/21 delete 3/22
+            depth_loss = 0.005*tf.reduce_sum(tf.square(mean_depth)) 
+            total_loss = pixel_loss + smooth_loss + exp_loss #+ depth_loss
+            ### add scaling 3/20 add depth 3/21 delete scaling 3/21 delete depth 3/22
 
         with tf.name_scope("train_op"):
-            train_vars = [var for var in tf.trainable_variables()]
+            ### 刨除intrinsics参数 3/23
+            train_vars = [var for var in tf.trainable_variables() if var.name!='data_loading/intrinsics_scale:0']
             optim = tf.train.AdamOptimizer(opt.learning_rate, opt.beta1)
             # self.grads_and_vars = optim.compute_gradients(total_loss, 
             #                                               var_list=train_vars)
             # self.train_op = optim.apply_gradients(self.grads_and_vars)
-            self.train_op = slim.learning.create_train_op(total_loss, optim)
+            #self.train_op = slim.learning.create_train_op(total_loss, optim) ### delete因为这里还是会训练所有参数 3/23
+            self.train_op = optim.minimize(total_loss, var_list=train_vars)  ### 不训练intrinsics 3/23
             self.global_step = tf.Variable(0, 
                                            name='global_step', 
                                            trainable=False)
             self.incr_global_step = tf.assign(self.global_step, 
                                               self.global_step+1)
+            
+            '''train_intrinsics = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                                                 'data_loading/intrinsics_scale:0') ### 单独训练 3/23
+            boundaries_intrinsics = [15000]   ### 15k步之后停止对相机参数的训练 3/23
+            learning_rate_intrinsics = [0.0002,0.]  ### 15k步之后学习率为0 3/23
+            learning_rate_intrinsics = tf.train.piecewise_constant(
+                self.global_step, 
+                boundaries=boundaries_intrinsics, 
+                values=learning_rate_intrinsics)  ### 分段常数衰减学习率 3/23
+            optim_intrinsics = tf.train.AdamOptimizer(learning_rate_intrinsics, opt.beta1) ### add 3/23
+            #self.train_op_intrinsics = slim.learning.create_train_op(total_loss, optim_intrinsics)  ### add 3/23
+            self.train_op_intrinsics = optim_intrinsics.minimize(total_loss, var_list=train_intrinsics) ### add 3/23'''
 
         # Collect tensors that are useful later (e.g. tf summary)
         self.pred_depth = pred_depth
@@ -162,12 +180,13 @@ class SfMLearner(object):
         self.exp_loss = exp_loss
         self.smooth_loss = smooth_loss
         #self.scaling_loss = scaling_loss   ### add 3/20
-        self.depth_loss = depth_loss     ### 3/21
+        self.depth_loss = depth_loss     ### 3/21 delete 3/22 add 3/23
         self.tgt_image_all = tgt_image_all
         self.src_image_stack_all = src_image_stack_all
         self.proj_image_stack_all = proj_image_stack_all
         self.proj_error_stack_all = proj_error_stack_all
         self.exp_mask_stack_all = exp_mask_stack_all
+        #self.learning_rate_intrinsics = learning_rate_intrinsics ### 观察学习率 3/23 delete 3/23
 
     def get_reference_explain_mask(self, downscaling):
         opt = self.opt
@@ -205,7 +224,8 @@ class SfMLearner(object):
         tf.summary.scalar("pixel_loss", self.pixel_loss)
         tf.summary.scalar("smooth_loss", self.smooth_loss)
         tf.summary.scalar("exp_loss", self.exp_loss)
-        tf.summary.scalar("depth_loss", self.depth_loss)  ### add 3/21
+        tf.summary.scalar("depth_loss", self.depth_loss)  ### add 3/21 delete 3/22 add 3/23
+        #tf.summary.scalar("learning_rate_intrinsics", self.learning_rate_intrinsics) ### add 3/23 delete 3/23
         for s in range(opt.num_scales):
             tf.summary.histogram("scale%d_depth" % s, self.pred_depth[s])
             tf.summary.image('scale%d_disparity_image' % s, 1./self.pred_depth[s])
@@ -271,16 +291,18 @@ class SfMLearner(object):
                 fetches = {
                     "train": self.train_op,
                     "global_step": self.global_step,
-                    "incr_global_step": self.incr_global_step
+                    "incr_global_step": self.incr_global_step,
+                    #"train_intrinsics": self.train_op_intrinsics   ### add 3/23 delete 3/23
                 }
 
                 if step % opt.summary_freq == 0:
                     fetches["loss"] = self.total_loss
-                    fetches["depth"] = self.pred_depth   ### add 3/21
+                    fetches["depth"] = self.pred_depth   ### add 3/21 delete 3/22 add 3/23
                     #fetches["pixel_loss"] = self.pixel_loss  ### add 3/20
                     #fetches["exp_loss"] = self.exp_loss     ### add 3/20
                     #fetches["smooth_loss"] = self.smooth_loss ### add 3/20
                     #fetches["scaling_loss"] = self.scaling_loss ### add 3/20
+                    #fetches["learning_rate_intrinsics"] = self.learning_rate_intrinsics ### 打印学习率 3/23 delete
                     fetches["summary"] = sv.summary_op
 
                 results = sess.run(fetches)
@@ -297,15 +319,16 @@ class SfMLearner(object):
                     #intrinsics = sess.graph.get_tensor_by_name('data_loading/intrinsics:0') ### add 3/13
                     #print(sess.run(intrinsics))   ### add 观察相机内参训练情况 3/13
                     #print()
-                    var1 = sess.graph.get_tensor_by_name('data_loading/intrinsics_scale:0') ### add 3/14
+                    #var1 = sess.graph.get_tensor_by_name('data_loading/intrinsics_scale:0') ### add 3/14
                     #var2 = sess.graph.get_tensor_by_name('data_loading/intrinsics_trans:0') ### add 3/14
-                    print(sess.run(var1))   ### add 观察相机内参训练情况 3/14
+                    #print(sess.run(var1))   ### add 观察相机内参训练情况 3/14
                     #print(sess.run(var2))   ### add 观察相机内参训练情况 3/14
+                    #print("intrinsics learning rate: %f" % results["learning_rate_intrinsics"])### 观察学习率 3/23
                     #print("mean: %.4f" % np.mean(results["depth"][0]))  ### add 3/21
                     print("max: %.4f  min: %.4f  mean: %.4f" % \
                           (results["depth"][0].max(), \
                            results["depth"][0].min(), \
-                           results["depth"][0].mean()))   ### 观察深度信息 3/21
+                           results["depth"][0].mean()))   ### 观察深度信息 3/21 add 3/23
                     #print("exp_loss    : %.4f" % sess.run(results["exp_loss"]))     ### 观察各项loss的量级 3/20
                     #print("pixel_loss   : %.4f" % sess.run(self.pixel_loss))   ### 观察各项loss的量级 3/20
                     #print("smooth_loss  : %.4f" % sess.run(self.smooth_loss))   ### 观察各项loss的量级 3/20
